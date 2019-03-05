@@ -58,9 +58,6 @@ class CamNet(nn.Module):
         self.reductionFlowFea = nn.Sequential(
             nn.Conv2d(256 * block.expansion * 2 * opt_frames, 256 * block.expansion, kernel_size=1, padding=0, bias=False),
             nn.BatchNorm2d(1024),
-            nn.Conv2d(256 * block.expansion, 256 * block.expansion, kernel_size=1, padding=0,
-                      bias=False),
-            nn.BatchNorm2d(1024),
         )
 
         self.fusion4img = nn.Sequential(
