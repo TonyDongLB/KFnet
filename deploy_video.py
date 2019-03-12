@@ -26,6 +26,22 @@ transforms4img = T.Compose([
                 normalize
             ])
 
+def ave_score(ori_score):
+    final_result = ori_score.copy()
+    for i in range(len(ori_score)):
+        if i < 4:
+            continue
+        if i + 4 >= len(ori_score):
+            break
+        score = 0.
+        score += sum(ori_score[i -4: i +4 + 1]) / 7
+        for i in range(i - 4,i + 4 + 1):
+            if score > 0.8:
+                final_result[i] = 1
+            else:
+                final_result[i] = 0
+    return final_result
+
 def get_new_data(images, flows, videoCapture, opt_frames, distrance4flow = 40):
     if len(images) < opt_frames * 2 + 1:
         while len(images) < opt_frames * 2 + 1:
@@ -85,12 +101,13 @@ def deploy(model, gpu, video_path, opt_frames, distrance4flow = 40):
     videoCapture = cv2.VideoCapture(video_path)
     images = []
     flows = []
+    result_pre = []
     index = 0
 
     while True:
         index += 1
         #  设置数据
-        print(index)
+        # print(index)
         result = get_new_data(images, flows, videoCapture, opt_frames, distrance4flow)
         if not result:
             break
@@ -116,11 +133,24 @@ def deploy(model, gpu, video_path, opt_frames, distrance4flow = 40):
 
         pred = output.data.max(1)[1]
         classed = int(pred.cpu().numpy()[0])
-        if classed == 1:
-            cv2.putText(displayImg, "SOMEONE IS WRITING", (30, 30), cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 4)
+        result_pre.append(classed)
+
+    result_pre = ave_score(result_pre)
+    videoCapture.release()
+    videoCapture = cv2.VideoCapture(video_path)
+    for i in range(opt_frames):
+        sucess, new_image = videoCapture.read()
+    i = 0
+    while True:
+        sucess, new_image = videoCapture.read()
+        if not sucess:
+            break
+        if result_pre[i] == 1:
+            cv2.putText(new_image, "SOMEONE IS WRITING", (30, 30), cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 4)
         else:
-            cv2.putText(displayImg, "NULL", (30, 30), cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 4)
-        cv2.imshow("test Video", displayImg)
+            cv2.putText(new_image, "NULL", (30, 30), cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 4)
+        i += 1
+        cv2.imshow("test Video", new_image)
         cv2.waitKey(200)
 
     cv2.destroyWindow('test Video')
@@ -133,7 +163,7 @@ def get_args():
                       type='int', help='batch size')
     parser.add_option('-g', '--gpu', action='store_true', dest='gpu',
                       default=True, help='use cuda')
-    parser.add_option('--model', '-m', default='/home/dl/Work/HandNet/checkpoints/epoch_11_0.9468085106382979_dist=60_0304_11:14:40.pth',
+    parser.add_option('--model', '-m', default='/home/dl/Work/HandNet/checkpoints/epoch_40_0.925531914893617_dist=60_0308_04:13:33.pth',
                         metavar='FILE',
                         help="Specify the file in which is stored the model"
                              " (default : 'MODEL.pth')")

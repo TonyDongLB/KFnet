@@ -150,25 +150,36 @@ def train_model(model, opt_frames=1, epochs=200, batch_size=16, lr=0.01, gpu=Tru
 
 
 def eval(model, dataset, gpu=False, criterion=None):
-    right = 0
+    TP, FP, TN, FN = 0, 0, 0, 0
 
     for ii, (img1, flows, label) in enumerate(dataset):
         img1 = Variable(img1)
         for i in range(len(flows)):
             flows[i] = Variable(flows[i])
-        label = Variable(label).long()
 
         if gpu:
             img1 = img1.cuda()
             for i in range(len(flows)):
                 flows[i] = flows[i].cuda()
-            label = label.cuda()
 
-        score = model(img1, flows)
-        pred = score.max(1)[1]
-        right += pred.eq(label).sum().item()
+        output = model(img1, flows)
+        pred = output.data.max(1)[1]
+        classed = int(pred.cpu().numpy()[0])
+        if label == 1:
+            if classed == 1:
+                TP += 1
+            else:
+                FN += 1
+        else:
+            if classed == 1:
+                FP += 1
+            else:
+                TN += 1
 
-    accuracy = right / len(dataset)
+    accuracy = (TP + TN) / len(dataset)
+    print('Precision is '+ str(TP/(TP+FP)))
+    print('Recall is ' + str(TP/(TP+FN)))
+    print('accuracy is ' + str(accuracy))
 
     return accuracy
 
@@ -180,49 +191,50 @@ def get_args():
                       help='recent opt flow frames(before and after, so the total opt_frames is double this value')
     parser.add_option('-e', '--epochs', dest='epochs', default=40, type='int',
                       help='number of epochs')
-    parser.add_option('-b', '--batch-size', dest='batchsize', default=16,
+    parser.add_option('-b', '--batch-size', dest='batchsize', default=8,
                       type='int', help='batch size')
-    parser.add_option('--distance4flow', dest='distance4flow', default=60,
+    parser.add_option('--distance4flow', dest='distance4flow', default=40,
                       type='int', help='distance for flow')
     parser.add_option('-l', '--learning-rate', dest='lr', default=0.01,
                       type='float', help='learning rate')
     parser.add_option('-g', '--gpu', action='store_true', dest='gpu',
                       default=True, help='use cuda')
     parser.add_option('-c', '--load', dest='load',
-                      default=False, help='load file model')
+                      default='/home/dl/Work/HandNet/checkpoints/epoch_17_0.9574468085106383_dist=60_0306_20:22:46.pth', help='load file model')
     (options, args) = parser.parse_args()
     return options
 
 
 if __name__ == '__main__':
-    args = get_args()
 
-    model = CamNet(opt_frames=args.opt_frames)
-    model = loadPretrain(model)
+    for dist in [60]:
+        args = get_args()
 
-    if args.load:
-        model.load(args.load)
-        print('Model loaded from {}'.format(args.load))
+        model = CamNet(opt_frames=args.opt_frames)
+        model = loadPretrain(model)
 
-    if args.gpu:
-        model.cuda()
-        cudnn.benchmark = True # faster convolutions, but more memory
-    if torch.cuda.device_count() > 1:
-        print("Using ", torch.cuda.device_count(), " GPUs!")
-        model = nn.DataParallel(model)
+        if args.load is not None:
+            model.load(args.load)
+            print('Model loaded from {}'.format(args.load))
 
-    try:
-        train_model(model=model,
-                    opt_frames=args.opt_frames,
-                    epochs=args.epochs,
-                    batch_size=args.batchsize,
-                    lr=args.lr,
-                    gpu=args.gpu,
-                    distance4flow=args.distance4flow,)
-    except KeyboardInterrupt:
-        torch.save(model.state_dict(), 'INTERRUPTED.pth')
-        print('Saved interrupt')
+        if args.gpu:
+            model.cuda()
+            cudnn.benchmark = True  # faster convolutions, but more memory
+        if torch.cuda.device_count() > 1:
+            print("Using ", torch.cuda.device_count(), " GPUs!")
+            model = nn.DataParallel(model)
         try:
-            sys.exit(0)
-        except SystemExit:
-            os._exit(1)
+            train_model(model=model,
+                        opt_frames=args.opt_frames,
+                        epochs=args.epochs,
+                        batch_size=args.batchsize,
+                        lr=args.lr,
+                        gpu=args.gpu,
+                        distance4flow=dist)
+        except KeyboardInterrupt:
+            torch.save(model.state_dict(), 'INTERRUPTED.pth')
+            print('Saved interrupt')
+            try:
+                sys.exit(0)
+            except SystemExit:
+                os._exit(1)

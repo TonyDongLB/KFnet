@@ -1,12 +1,12 @@
 import torch as t
-from torchvision.models import resnet50
+from torchvision.models import resnet101
 from model import CamNet
 from collections import OrderedDict
 from model.modules import *
 
 def loadPretrain(net):
     print('load pretrained model...')
-    resnet = resnet50(pretrained=True)
+    resnet = resnet101(pretrained=True)
     res_dict = resnet.state_dict()
     model = net.state_dict()
     new_dict = {}
