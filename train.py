@@ -18,6 +18,7 @@ from model import CamNet
 from dataset import Hand
 from loss import FocalLoss2d
 from utils import *
+import focal_loss
 
 
 def train_model(model, opt_frames=1, epochs=200, batch_size=16, lr=0.01, gpu=True, distance4flow=40):
@@ -25,7 +26,7 @@ def train_model(model, opt_frames=1, epochs=200, batch_size=16, lr=0.01, gpu=Tru
     root_data = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                              'data')
     dir_checkpoint = 'checkpoints/0130/'
-    writer = SummaryWriter('log/0130/')
+    writer = SummaryWriter('log/0312/')
 
     # # 设计数据
     train_set = Hand(root_data, opt_frames=opt_frames, train=True, distrance4flow=distance4flow)
@@ -70,8 +71,8 @@ def train_model(model, opt_frames=1, epochs=200, batch_size=16, lr=0.01, gpu=Tru
     if gpu:
         weight = weight.cuda()
     criterion = torch.nn.CrossEntropyLoss(weight=weight)
-    # # to use CrossEntropyLoss
-    # criterion = FocalLoss2d(gamma=2)
+    # to use CrossEntropyLoss
+    # criterion = focal_loss.FocalLoss(class_num=2)
 
     print('''
     Starting training:
@@ -177,9 +178,9 @@ def eval(model, dataset, gpu=False, criterion=None):
                 TN += 1
 
     accuracy = (TP + TN) / len(dataset)
-    print('Precision is '+ str(TP/(TP+FP)))
-    print('Recall is ' + str(TP/(TP+FN)))
-    print('accuracy is ' + str(accuracy))
+    # print('Precision is '+ str(TP/(TP+FP)))
+    # print('Recall is ' + str(TP/(TP+FN)))
+    # print('accuracy is ' + str(accuracy))
 
     return accuracy
 
@@ -189,9 +190,9 @@ def get_args():
     parser.add_option('--opt_frames', dest='opt_frames', default=2,
                       type='int',
                       help='recent opt flow frames(before and after, so the total opt_frames is double this value')
-    parser.add_option('-e', '--epochs', dest='epochs', default=40, type='int',
+    parser.add_option('-e', '--epochs', dest='epochs', default=50, type='int',
                       help='number of epochs')
-    parser.add_option('-b', '--batch-size', dest='batchsize', default=8,
+    parser.add_option('-b', '--batch-size', dest='batchsize', default=5,
                       type='int', help='batch size')
     parser.add_option('--distance4flow', dest='distance4flow', default=40,
                       type='int', help='distance for flow')
@@ -200,7 +201,7 @@ def get_args():
     parser.add_option('-g', '--gpu', action='store_true', dest='gpu',
                       default=True, help='use cuda')
     parser.add_option('-c', '--load', dest='load',
-                      default='/home/dl/Work/HandNet/checkpoints/epoch_17_0.9574468085106383_dist=60_0306_20:22:46.pth', help='load file model')
+                      default=None, help='load file model')
     (options, args) = parser.parse_args()
     return options
 

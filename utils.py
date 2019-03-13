@@ -11,7 +11,7 @@ def loadPretrain(net):
     model = net.state_dict()
     new_dict = {}
 
-    for (model_key, model.val), (res_key, res_val) in zip(model.items(), res_dict.items()):
+    for (model_key, model_val), (res_key, res_val) in zip(model.items(), res_dict.items()):
         if model_key.startswith('img'):
             new_dict[model_key] = res_val
         else:
@@ -31,3 +31,26 @@ def loadPretrain(net):
     model.update(new_dict)
     net.load_state_dict(model)
     return net
+
+
+if __name__ == '__main__':
+    import cv2
+    import numpy as np
+    import glob
+    means = [[], [], []]
+    stds = [[], [], []]
+    imgs = glob.glob('/home/dl/Work/HandNet/data/train/1/*.jpg')
+    for path in imgs:
+        img = cv2.imread(path)
+        img = img.astype(np.float64)
+        img /= 255
+        chanels = cv2.split(img)
+        for i in range(len(chanels)):
+            mean = np.mean(chanels[i])
+            std = np.std(chanels[i])
+            means[i].append(mean)
+            stds[i].append(std)
+    for val in means:
+        print(np.mean(val))
+    for val in stds:
+        print(np.mean(val))

@@ -18,7 +18,7 @@ class CamNet(nn.Module):
     注意在特征提取阶段，对img的特征提取反向传播两次，注意学习率。
     opt_frames : 表示两边各有多少个光流图片，即总光流图片为opt_frames * 2。
     """
-    def __init__(self, opt_frames=1, block=Bottleneck, layers=(3, 4, 6, 3), pretrained=False, is_predict = False):
+    def __init__(self, opt_frames=1, block=Bottleneck, layers=(3, 4, 23, 3), pretrained=False, is_predict = False):
         super(CamNet, self).__init__()
         self.is_predict = is_predict
         self.opt_frames = opt_frames
@@ -49,39 +49,57 @@ class CamNet(nn.Module):
         )
 
         self.fusion4flow = nn.Sequential(
-            nn.Conv3d(256 * block.expansion, 256 * block.expansion, kernel_size=(3, 3, 3), padding=(1, 1, 1), bias=False),
-            nn.BatchNorm3d(1024),
-            nn.Conv3d(256 * block.expansion, 256 * block.expansion, kernel_size=(3, 3, 3), padding=(1, 1, 1), bias=False),
-            nn.BatchNorm3d(1024),
+            nn.Conv3d(256 * block.expansion, 256 * block.expansion // 2, kernel_size=(1, 1, 1), padding=(0, 0, 0),
+                      bias=False),
+            nn.BatchNorm3d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(256 * block.expansion // 2, 256 * block.expansion // 2, kernel_size=(3, 3, 3), padding=(1, 1, 1), bias=False),
+            nn.BatchNorm3d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(256 * block.expansion // 2, 256 * block.expansion // 2, kernel_size=(3, 3, 3), padding=(1, 1, 1), bias=False),
+            nn.BatchNorm3d(512),
+            nn.ReLU(inplace=True),
         )
 
         self.reductionFlowFea = nn.Sequential(
-            nn.Conv2d(256 * block.expansion * 2 * opt_frames, 256 * block.expansion, kernel_size=1, padding=0, bias=False),
+            nn.Conv2d(256 * block.expansion * opt_frames, 256 * block.expansion, kernel_size=1, padding=0, bias=False),
             nn.BatchNorm2d(1024),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256 * block.expansion, 256 * block.expansion, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(1024),
+            nn.ReLU(inplace=True),
         )
 
         self.fusion4img = nn.Sequential(
-            nn.Conv2d(256 * block.expansion * 2, 256 * block.expansion, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(256 * block.expansion * 2, 256 * block.expansion, kernel_size=1, padding=0, bias=False),
             nn.BatchNorm2d(1024),
+            nn.ReLU(inplace=True),
             nn.Conv2d(256 * block.expansion, 256 * block.expansion, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(1024),
+            nn.ReLU(inplace=True),
         )
 
         self.layer4fusion = self._make_layer(block, 512, layers[3], stride=2, img_path=True)
-        self.layer4flow = self._make_layer(block, 512, layers[3], stride=2, img_path=False)
+        self.layer4flow = nn.Sequential(
+            nn.Conv3d(256 * block.expansion // 2, 256 * block.expansion, kernel_size=(3, 3, 3), stride=(1, 2, 2),
+                      padding=(1, 1, 1), bias=False),
+            nn.BatchNorm3d(1024),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(256 * block.expansion, 256 * block.expansion, kernel_size=(3, 3, 3), padding=(1, 1, 1),
+                      bias=False),
+            nn.BatchNorm3d(1024),
+            nn.ReLU(inplace=True),
+        )
 
-        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.avgpool2d = nn.AvgPool2d((10, 10), stride=1)
+        self.avgpool3d = nn.AvgPool3d((1, 10, 10), stride=1)
 
         self.fc_fusion = nn.Sequential(
-            nn.Linear(512 * block.expansion, 512 * block.expansion // 2),
-            nn.Dropout(0.4),
-            nn.Linear(512 * block.expansion // 2, 2),
+            nn.Linear(512 * block.expansion, 2),
             nn.Dropout(0.4),
         )
         self.fc_flow = nn.Sequential(
-            nn.Linear(512 * block.expansion, 512 * block.expansion // 2),
-            nn.Dropout(0.4),
-            nn.Linear(512 * block.expansion // 2, 2),
+            nn.Linear(512 * block.expansion * 2, 2),
             nn.Dropout(0.4),
         )
 
@@ -137,28 +155,28 @@ class CamNet(nn.Module):
             flow_fea[i] = torch.unsqueeze(flow_fea[i], 2)
         flow_fea = torch.cat(flow_fea, dim=2)
         flow_fea = self.fusion4flow(flow_fea)
-        flow_fea = torch.split(flow_fea, 1, dim=2)
-        flow_fea = list(map(torch.squeeze, flow_fea))
+        flow_fea_list = torch.split(flow_fea, 1, dim=2)
+        flow_fea_list = list(map(torch.squeeze, flow_fea_list))
         # # 当batch_size为1时候需要补回
-        if len(flow_fea[0].size()) < 4:
+        if len(flow_fea_list[0].size()) < 4:
             for i in range(len(flows)):
-                flow_fea[i] = torch.unsqueeze(flow_fea[i], 0)
-        flow_fea = torch.cat(flow_fea, dim=1)
-        flow_fea = self.reductionFlowFea(flow_fea)
+                flow_fea_list[i] = torch.unsqueeze(flow_fea_list[i], 0)
+        flow_fea_list = torch.cat(flow_fea_list, dim=1)
+        flow_fea_list_reduc = self.reductionFlowFea(flow_fea_list)
 
         # TODO 此次测试取消了光流向图像特征的流向，后续可以尝试拿回来
-        #flow_fea_detach = flow_fea.detach() # detach for not bachward the image loss to flow path
-        #fusioned_fea = torch.cat((img1_fea, flow_fea_detach), dim=1)
-        # fusioned_fea = self.fusion4img(fusioned_fea)
+        flow_fea_list_reduc_detach = flow_fea_list_reduc.detach() # detach for not bachward the image loss to flow path
+        fusioned_fea = torch.cat((img1_fea, flow_fea_list_reduc_detach), dim=1)
+        fusioned_fea = self.fusion4img(fusioned_fea)
         # 直接把图像特征当做融合特征继续传播
-        fusioned_fea = img1_fea
+        # fusioned_fea = img1_fea
 
         fusioned_fea = self.layer4fusion(fusioned_fea)
         flow_fea = self.layer4flow(flow_fea)
 
-        fusioned_fea = self.avgpool(fusioned_fea)
+        fusioned_fea = self.avgpool2d(fusioned_fea)
         fusioned_fea = fusioned_fea.view(fusioned_fea.size(0), -1)
-        flow_fea = self.avgpool(flow_fea)
+        flow_fea = self.avgpool3d(flow_fea)
         flow_fea = flow_fea.view(flow_fea.size(0), -1)
 
         result_image = self.fc_fusion(fusioned_fea)
@@ -181,7 +199,7 @@ class CamNet(nn.Module):
         t.save(self.state_dict(), name)
         return name
 
-    def load(self, path, gpu=False):
+    def load(self, path, gpu=True):
         '''
         可加载指定路径的模型，针对是在多GPU训练的模型。
         '''
@@ -196,6 +214,7 @@ class CamNet(nn.Module):
             name = k#[7:]  # remove `module.`
             new_state_dict[name] = v
         self.load_state_dict(new_state_dict)
+
 
 if __name__ == "__main__":
     test = CamNet()
